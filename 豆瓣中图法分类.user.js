@@ -15,7 +15,7 @@
 // @require        https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js
 // @require        https://greasyfork.org/scripts/368137-encodeToGb2312/code/encodeToGb2312.js?version=601683
 // @include        https://book.douban.com/*
-// @version        0.2.2
+// @version        0.3.1
 // @icon           https://img3.doubanio.com/favicon.ico
 // @run-at         document-end
 // @namespace      http://018.ai
@@ -37,17 +37,69 @@ if (!/douban.com/.test(location.host)) {
 
     $(document).ready(function () {
         // 分类
-        var info = $('#info');
-        if (info && info.length > 0) {
-            var isbns = /ISBN: .*\n/.exec(info.eq(0).text());
-            if (isbns && isbns.length > 0) {
-                var isbn = isbns[0].match(/\d+/g)[0].replace(/\n| /g, '');
-                var title = $('#wrapper h1').eq(0).text().replace(/\n| /g, '');
-                if( isbn && title ) {
-                    // superlib 搜索
-                    requestSuperlib(isbn);
-                }
+        var infos = $('#info').text();
+        infos = infos.replace(/^[\xA0\s]+/gm, '')
+            .replace(/[\xA0\s]+$/gm, '')
+            .replace(/\n+/g, '\n')
+            .replace(/:\n+/g, ': ')
+            .replace(/]\n/g, ']')
+            .replace(/】\n/g, '】')
+            .replace(/\n\/\n/g, '/');
+        var title = $('#wrapper h1').eq(0).text().replace(/\n| /g, '');
+        var isbn, author;
+        for (var section of Object.values(infos.split('\n'))) {
+            if (!section || section.trim().length <= 0) continue;
+
+            let index = section.indexOf(':');
+            if (index <= -1) continue;
+
+            let key = section.substr(0, index).trim();
+            let value = section.substr(index + 1).trim();
+            switch (key) {
+                // book
+                case "作者":
+                    author = value;
+                    break;
+                case "ISBN":
+                    isbn = value;
+                    break;
+                default:
+                    break;
             }
+        }
+        if( isbn && title ) {
+            // superlib 搜索
+            requestSuperlib(isbn);
+        }
+
+        if( author && title ) {
+            moreversion(title, author);
+        }
+
+        var abstract;
+        var h2s = $('div.related_info h2');
+        for (var i = 0; i < h2s.length; i++) {
+            let h2 = h2s[i];
+            let span = h2.querySelector('span');
+            if(span && span.textContent === '内容简介') {
+                var intro = h2.nextElementSibling.querySelector('.all div.intro');
+                if(!intro) {
+                    intro = h2.nextElementSibling.querySelector('div.intro');
+                }
+                if(intro) {
+                    abstract = intro.textContent;
+                }
+                break;
+            }
+        }
+        if (abstract.includes('教科书')) {
+            $('#mainpic').append('<div class="indent"><span class="tag">教科书</span></div>');
+        } else if (abstract.includes('教材')) {
+            $('#mainpic').append('<div class="indent"><span class="tag">教材</span></div>');
+        } else if (abstract.includes('课程')) {
+            $('#mainpic').append('<div class="indent"><span class="tag">课程</span></div>');
+        } else if (abstract.includes('课本')) {
+            $('#mainpic').append('<div class="indent"><span class="tag">课本</span></div>');
         }
 
         if (localStorage.getItem("IsticKeys") == '0') {
@@ -58,12 +110,6 @@ if (!/douban.com/.test(location.host)) {
                 location.reload();
             });
         } else {
-            // 关键字
-            let abstract = $('.indent .all .intro').eq(0).text();
-            if (!abstract || abstract.length <= 0) {
-                abstract = $('.indent .intro').eq(0).text();
-            }
-
             // 目录
             let id = getIDFromURL(location.href);
             let dir = $('#dir_' + id + '_full').text();
@@ -138,7 +184,7 @@ if (!/douban.com/.test(location.host)) {
             let found = false;
             let books = doc.querySelectorAll('.book1');
             if (books.length <= 0) {
-                $('#info').append('<span class="pl">中图分类:</span> <span style="color:#989B9B">查无此信息</span>');
+                $('#info').append('<span class="pl">中图分类:</span> <span style="color:#989B9B">查无此信息</span><br/>');
                 return;
             }
 
@@ -150,26 +196,91 @@ if (!/douban.com/.test(location.host)) {
                     // superlib 单本书籍查看
                     let url = a.href.replace(location.host, 'book.ucdrs.superlib.net').replace('https', 'http');
                     loadDoc(url, {isbn: meta.isbn}, function(doc1, responseDetail1, meta1) {
-                        let tubox = doc1.querySelector('.tubox dl').textContent;
-                        let isbn1 = opt(/【ISBN号】.*\n/.exec(tubox)).replace(/【ISBN号】|-|\n/g, '');
-                        if (eqisbn(meta1.isbn, isbn1)) {
-                            let clc = opt(opt(/【中图法分类号】.*\n/.exec(tubox)).match(/[a-zA-Z0-9\.]+/));
-                            if (clc) {
-                                found = $("#clcText").length > 0;
-                                if (!found) {
-                                    $('#info').append('<span class="pl">中图分类:</span> <a id="clc" target="_blank" href="https://www.clcindex.com/category/' + clc + '">'
-                                                      + clc + '</a> <span id="clcText">(...)</span><br>');
-                                    requestClc(clc);
+                        found = $(".clcText").length > 0;
+                        if (!found) {
+                            let tubox = doc1.querySelector('.tubox dl').textContent;
+                            let isbn1 = opt(/【ISBN号】.*\n/.exec(tubox)).replace(/【ISBN号】|-|\n/g, '');
+                            if (eqisbn(meta1.isbn, isbn1)) {
+                                let clcsText = opt(opt(/【中图法分类号】.*\n/.exec(tubox)).match(/[a-zA-Z0-9\.;]+/));
+                                let clcs = clcsText.split(';');
+                                if (clcs) {
+                                    for(let i = 0; i < clcs.length; i++) {
+                                        let clc = clcs[i];
+                                        let $clc = $('.clcText');
+                                        if($clc.length > 0) {
+                                            $clc.after('; <a id="clc_' + clc.replace('.', '') + '" target="_blank" href="https://www.clcindex.com/category/' + clc + '">'
+                                                            + clc + '</a> <span id="clcText_' + clc.replace('.', '') + '">(...)</span>');
+                                            requestClc(clc);
+                                        } else {
+                                            $('#info').append('<span class="pl">中图分类:</span> <span id="clc" style="display: none;">' + clcsText + '</span><a id="clc_' + clc.replace('.', '') + '" target="_blank" href="https://www.clcindex.com/category/' + clc + '">'
+                                                            + clc + '</a> <span id="clcText_' + clc.replace('.', '') + '" class="clcText">(...)</span><br>');
+                                            requestClc(clc);
+                                        }
+                                    }
                                 }
                             }
                         }
                     }, function(err, meta) {
-                        $('#info').append('<span class="pl">中图分类:</span> <span style="color:#989B9B">查无此信息</span>');
+                        $('#info').append('<span class="pl">中图分类:</span> <span style="color:#989B9B">查无此信息</span><br/>');
                     });
                 }
             }
         }, function(err, meta) {
-            $('#info').append('<span class="pl">中图分类:</span> <span style="color:#989B9B">查无此信息</span>');
+            $('#info').append('<span class="pl">中图分类:</span> <span style="color:#989B9B">查无此信息</span><br/>');
+        });
+    }
+
+    function trimAuthors(author) {
+        let authors = author.split(/[(|（|）|)|\/|\.|．|·|•|\s]/g);
+        var trimAs = [];
+        for (let a of authors) {
+            let trima = a.trim().replace('主编', '');
+            if (trima.length <= 1) continue;
+
+            if (trimAs.indexOf(trima) < 0) {
+                trimAs.push(trima);
+            }
+        }
+        return trimAs;
+    }
+
+    function moreversion(title, author) {
+        var trimTitle = title.replace(/[\(|（].*[\)|）]/g, '');
+        doGet('https://book.douban.com/j/subject_suggest?q=' + trimTitle, {isbn: trimTitle}, function(arr, responseDetail, meta) {
+            if (arr.length <= 0) {
+                $('#info').append('<span class="pl">更多版本:</span> <span style="color:#989B9B">查无此信息</span><br>');
+                return;
+            }
+
+            $('#info').append('<span class="pl">更多版本:</span> ');
+            var trimAs = trimAuthors(author);
+            var html = '';
+            for (let item of arr) {
+                if (item.type !== 'b' || item.url === location.href) continue;
+
+                let trim_author_name = trimAuthors(item.author_name);
+                if ($(trimAs).filter(trim_author_name).length > 0) {
+                    $('#info').append('<a target="_blank" href="' + item.url + '"><img style="width: 16px;height: 16px;" src="' + item.pic + '" />' + item.title + '(' + item.year + ', <span id="item__' + item.id + '">...</span>)' + '</a><span style="color:#989B9B"> | </span>');
+                }
+
+                loadDoc(item.url, {id: item.id}, function(_doc, responseDetail, meta) {
+                    let rating = _doc.querySelector('strong[property*="v:average"]').textContent;
+                    if (rating && (rating = rating.trim()).length >= 1) {
+                        var ratingPeople = _doc.querySelector('div.rating_sum a.rating_people span[property="v:votes"]').textContent;
+                        if (!ratingPeople || ratingPeople.toString().trim().length <= 0) {
+                            ratingPeople = 0;
+                        }
+                        $('#item__' + meta.id).html(rating + "/" + ratingPeople);
+                    } else {
+                        $('#item__' + meta.id).html("0/0");
+                    }
+                }, function(err, meta) {
+                    $('#item__' + meta.id).html("-/-");
+                });
+            }
+            $('#info').append('<a target="_blank" href="https://search.douban.com/book/subject_search?search_text=' + trimTitle + '&cat=1001">详情</a><br>');
+        }, function(err, meta) {
+            $('#info').append('<span class="pl">更多版本:</span> <a target="_blank" href="https://search.douban.com/book/subject_search?search_text=' + trimTitle + '&cat=1001">详情...</a><br>');
         });
     }
 
@@ -202,16 +313,16 @@ if (!/douban.com/.test(location.host)) {
                 }
             }
 
-            clcText(pid, jsonMap, clcs);
+            clcText(clc, pid, jsonMap, clcs);
 
-            htmlclc(clcs);
+            htmlclc(clc, clcs);
         }, function(err, meta) {
             requestClcB(meta.clc);
         });
     }
 
     //  处理clc文字
-    function clcText(pid, jsonMap, rets) {
+    function clcText(clc, pid, jsonMap, rets) {
         if (!jsonMap || !rets) return;
 
         if( jsonMap[pid] ) {
@@ -219,18 +330,17 @@ if (!/douban.com/.test(location.host)) {
 
             if (jsonMap[pid].level <= 2) return;
 
-            clcText(jsonMap[pid].pid, jsonMap, rets);
+            clcText(clc, jsonMap[pid].pid, jsonMap, rets);
         }
     }
 
-    function htmlclc(rets) {
+    function htmlclc(clc, rets) {
+        let clcText = $('#clcText_' + clc.replace('.', ''));
         if (rets.length > 0) {
-            let clcText = $('#clcText');
             if (clcText.text() == '(...)' ) {
                 clcText.html('(' + rets.join('<span style="color:#989B9B"> ▸ </span>') + ')');
             }
         } else {
-            let clcText = $('#clcText');
             if (clcText.text() == '(...)' ) {
                 clcText.html('<span style="color:#989B9B">(查无此信息)</span>');
             }
@@ -269,14 +379,14 @@ if (!/douban.com/.test(location.host)) {
                 clcs.push(clcCode + ' ' + hanldeClcText(txtContent));
             }
 
-            $('#clc').attr('href', meta.url);
-            htmlclc(clcs);
+            $('#clc_' + meta.clc).attr('href', meta.url);
+            htmlclc(meta.clc, clcs);
         }, function(err, meta) {
             if (err.status == 404) {
                 if (meta.clc.includes('.')) {
-                    requestClcB(meta.clc.replace(/\.\d*$/, ''));
+                    requestClcB(meta.clc, meta.clc.replace(/\.\d*$/, ''));
                 } else {
-                    requestClcB(meta.clc.replace(/\d$/, ''));
+                    requestClcB(meta.clc, meta.clc.replace(/\d$/, ''));
                 }
                 return;
             }

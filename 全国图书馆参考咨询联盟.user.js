@@ -16,7 +16,7 @@
 // @require        https://greasyfork.org/scripts/368137-encodeToGb2312/code/encodeToGb2312.js?version=601683
 // @include        http://jour.ucdrs.superlib.net/*
 // @include        http://book.ucdrs.superlib.net/views/specific/*
-// @version        0.1.1
+// @version        0.1.3
 // @run-at         document-end
 // @namespace      http://018.ai
 // ==/UserScript==
@@ -37,12 +37,17 @@ if (!/ucdrs.superlib.net/.test(location.host)) {
 
     $(document).ready(function () {
         if (location.href.includes('book.ucdrs.superlib.net/views/specific')) {
+            $('#libinfo .title').after($('<div class="box"><h3 class="boxHd">下载 </h3><div class="link" id="download"><span style="color:#989B9B">(...)</span></div> <div class="link" id="downloadTry"><span style="color:#989B9B">(...)</span></div></div>'));
             // 中图分类
             for(let dd of $('.tubox dl dd')) {
                 if (dd.textContent.startsWith('【中图法分类号】')) {
-                    let clc = opt(opt(/【中图法分类号】.*/.exec(dd.textContent)).match(/[a-zA-Z0-9\.]+/));
-                    $(dd).html(dd.textContent.replace(clc, '<a id="clc" target="_blank" href="https://www.clcindex.com/category/' + clc + '">' + clc + '</a>') + ' <span id="clcText">(...)</span>');
-                    requestClc(clc, dd);
+                    let clcs = opt(opt(/【中图法分类号】.*/.exec(dd.textContent)).match(/[a-zA-Z0-9\.;]+/)).split(';');
+                    var ddTextContent = dd.textContent;
+                    for(let clc of clcs) {
+                        ddTextContent = ddTextContent.replace(clc, '<a id="clc" target="_blank" href="https://www.clcindex.com/category/' + clc + '">' + clc + '</a>') + ' <span id="clcText_' + clc.replace('.', '') + '">(...)</span>\n';
+                        requestClc(clc, dd);
+                    }
+                    $(dd).html(ddTextContent)
                 } else if (dd.textContent.startsWith('【ISBN号】')) {
                     let title = $('.tutilte').text();
                     let isbn = opt(/【ISBN号】.*/.exec(dd.textContent)).replace(/【ISBN号】|-|\n/g, '');
@@ -53,41 +58,57 @@ if (!/ucdrs.superlib.net/.test(location.host)) {
                     }, 1000);
                 }
             }
-        } else if (location.href.includes('jour.ucdrs.superlib.net/views/specific')) {
-            // 文章下载
-            var as = $('.link a');
-            if (as.length > 0) {
-                loadHref(as.get(0));
+
+            var as1 = $('.testimg a');
+            if (as1.length == 0) {
+                as1 = $('.link a');
             }
+            if (as1.length > 0) {
+                loadBookHref(as1.get(0));
+            }
+        } else if (location.href.includes('jour.ucdrs.superlib.net/views/specific')) {
+            // 论文，文章下载
+            setTimeout(function(){
+                var as0 = $('.link a');
+                if (as0.length > 0) {
+                    loadJourHref(as0.get(0));
+                }
+            }, 1000);
         } else if (location.href.includes('jour.ucdrs.superlib.net/searchJour')) {
             // 文章下载
             for (var a of $('.book1 .get a')) {
                 if (a.textContent != '文章下载') continue;
 
-                loadHref(a);
+                loadJourHref(a);
             }
         }
     })
 
+    // 加载试读页面
+    function loadBookHref(a) {
+        loadDoc(a.href, {a: a}, function(doc, responseDetail, meta) {
+            let $assistUrl = $(doc.querySelector('#downpdf [name=assistUrl]'));
+            let assistUrl = $assistUrl.attr('value');
+            let $cntUrl = $(doc.querySelector('#downpdf [name=cntUrl]'));
+            let cntUrl = $cntUrl.attr('value');
+
+            $('#downloadTry').html('<a target="_blank" href="' + cntUrl + '">下载正文试读</a> <a target="_blank" href="' + assistUrl + '">下载目录页</a>');
+        });
+    }
+
     // 加载PDF页面
-    function loadHref(a) {
+    function loadJourHref(a) {
         loadDoc(a.href, {a: a}, function(doc, responseDetail, meta) {
             var download = doc.querySelector('.download .down_bnt');
             if (download) {
-                replaceHref($(meta.a), download.href)
+                $(meta.a).attr('href', download.href);
+                $(meta.a).html('PDF下载');
             }
         });
     }
 
-    // 替换href
-    function replaceHref($a, pdfurl) {
-        $a.attr('href', pdfurl);
-        $a.html('PDF下载');
-    }
-
     // 请求电子书
     function requestBOK(title, isbn) {
-        $('#libinfo .title').after($('<div class="box"><h3 class="boxHd">电子书 </h3><div class="link" id="download"><span style="color:#989B9B">(...)</span></div></div>'));
         loadDoc('https://b-ok.global/s/' + isbn, {title: title, isbn: isbn}, function(doc, responseDetail, meta) {
             let found = false;
             for (let a of doc.querySelectorAll('table.resItemTable h3[itemprop=name] a')) {
@@ -99,7 +120,11 @@ if (!/ucdrs.superlib.net/.test(location.host)) {
                         if (addDownloadedBook) {
                             let txt = addDownloadedBook.textContent.match(/\(.*\)/g);
                             url = addDownloadedBook.href.replace(location.host, 'b-ok.global').replace('http:', 'https:');
-                            $('#download').html('<a target="_blank" href="' + url + '">下载' + txt + '</a>');
+                            if ($('#download').text() == '(...)') {
+                                $('#download').html('<a target="_blank" href="' + url + '">下载' + txt + '</a>');
+                            } else {
+                                $('#download').append('<a target="_blank" href="' + url + '">下载' + txt + '</a>');
+                            }
                         } else {
                             $('#download').html('<span style="color:#989B9B"> 暂无资源 </span>');
                         }
@@ -146,16 +171,16 @@ if (!/ucdrs.superlib.net/.test(location.host)) {
                 }
             }
 
-            clcText(pid, jsonMap, clcs, meta.dd);
+            clcText(meta.clc, pid, jsonMap, clcs, meta.dd);
 
-            htmlclc(clcs, meta.dd);
+            htmlclc(meta.clc, clcs, meta.dd);
         }, function(err, meta) {
             requestClcB(meta.clc, meta.dd);
         });
     }
 
     //  处理clc文字
-    function clcText(pid, jsonMap, rets, dd) {
+    function clcText(clc, pid, jsonMap, rets, dd) {
         if (!jsonMap || !rets) return;
 
         if( jsonMap[pid] ) {
@@ -163,18 +188,18 @@ if (!/ucdrs.superlib.net/.test(location.host)) {
 
             if (jsonMap[pid].level <= 2) return;
 
-            clcText(jsonMap[pid].pid, jsonMap, rets, dd);
+            clcText(clc, jsonMap[pid].pid, jsonMap, rets, dd);
         }
     }
 
-    function htmlclc(rets, dd) {
+    function htmlclc(clc, rets, dd) {
         if (rets.length > 0) {
-            let clcText = $('#clcText');
+            let clcText = $('#clcText_' + clc.replace('.', ''));
             if (clcText.text() == '(...)' ) {
                 clcText.html('(' + rets.join('<span style="color:#989B9B"> ▸ </span>') + ')');
             }
         } else {
-            let clcText = $('#clcText');
+            let clcText = $('#clcText_' + clc.replace('.', ''));
             if (clcText.text() == '(...)' ) {
                 clcText.html('<span style="color:#989B9B">(查无此信息)</span>');
             }
@@ -225,7 +250,7 @@ if (!/ucdrs.superlib.net/.test(location.host)) {
                 return;
             }
 
-            let clcText = $('#clcText');
+            let clcText = $('#clcText_' + meta.clc);
             if (clcText.text() == '(...)' ) {
                 clcText.html('<span style="color:#989B9B">(无法获取)</span>');
             }
@@ -263,7 +288,7 @@ if (!/ucdrs.superlib.net/.test(location.host)) {
     function appendsubject(subject, dd) {
         let clcText = $('#subjectText');
         if (clcText.length == 0) {
-            $(dd).after($('<dd >【学科分类参考】<span id="subjectText"><span>' + subject + '</span></span></dd>'));
+            $(dd).after($(' \n<dd >【学科分类参考】<span id="subjectText"><span>' + subject + '</span></span></dd>'));
         } else {
             clcText.append('<span style="color:#989B9B"> | </span><span>' + subject + '</span>');
         }
