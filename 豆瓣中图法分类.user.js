@@ -15,7 +15,7 @@
 // @require        https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js
 // @require        https://greasyfork.org/scripts/368137-encodeToGb2312/code/encodeToGb2312.js?version=601683
 // @include        https://book.douban.com/*
-// @version        0.3.1
+// @version        0.4.0
 // @icon           https://img3.doubanio.com/favicon.ico
 // @run-at         document-end
 // @namespace      http://018.ai
@@ -32,10 +32,60 @@ if (!/douban.com/.test(location.host)) {
     return
 }
 
+const IsCourse = 'clc_setting_IsCourse';
+const Subject = 'clc_setting_Subject';
+const MoreVersion = 'clc_setting_MoreVersion';
+const IsticKeys = 'clc_setting_IsticKeys';
+
 ;(function () {
     'use strict';
 
     $(document).ready(function () {
+        var isSubject = localStorage.getItem(Subject);
+        if (!isSubject || isSubject.length === 0) {
+            localStorage.setItem(Subject, 1);
+        }
+        $('.top-nav-info').append('<a href="javascript:;" id="clc_setting_btn">中图法分类设置</a>');
+        $('#clc_setting_btn').click(function(){
+            if ($('#clc_setting').length > 0) {
+                return;
+            }
+
+            $('#wrapper > *').hide();
+            var $clc_setting = $('<div id="clc_setting">\
+                <h1>\
+                    <span>豆瓣中图法分类</span>\
+                </h1>\
+                <div>\
+                    <table>\
+                        <tbody>\
+                            <tr>\
+                                <td><input type="checkbox" checked lable="中图分类" disabled><span>中图分类</span></td>\
+                            </tr>\
+                            <tr>\
+                                <td><input type="checkbox" ' + (localStorage.getItem(IsCourse) === '1' ? 'checked' : '') + ' lable="是否教程" data-config="' + IsCourse + '"><span>是否教程</span></td>\
+                            </tr>\
+                            <tr>\
+                                <td><input type="checkbox" ' + (localStorage.getItem(Subject) === '1' ? 'checked' : '') + ' lable="学科分类参考" data-config="' + Subject + '"><span>学科分类参考</span></td>\
+                            </tr>\
+                            <tr>\
+                                <td><input type="checkbox" ' + (localStorage.getItem(MoreVersion) === '1' ? 'checked' : '') + ' lable="更多版本" data-config="' + MoreVersion + '"><span>更多版本</span></td>\
+                            </tr>\
+                            <tr>\
+                                <td><input type="checkbox" ' + (localStorage.getItem(IsticKeys) === '1' ? 'checked' : '') + ' lable="关键字" data-config="' + IsticKeys + '"><span>关键字</span></td>\
+                            </tr>\
+                        </tbody>\
+                    </table>\
+                </div>\
+                <br>\
+                <h2>设置完成后刷新即可。</h2>\
+            </div>');
+            $clc_setting.on('click', 'input', function() {
+                localStorage.setItem($(this).data('config'), $(this).prop('checked') ? 1 : 0);
+            });
+            $('#wrapper').append($clc_setting);
+        });
+
         // 分类
         var infos = $('#info').text();
         infos = infos.replace(/^[\xA0\s]+/gm, '')
@@ -67,13 +117,16 @@ if (!/douban.com/.test(location.host)) {
                     break;
             }
         }
+
         if( isbn && title ) {
             // superlib 搜索
             requestSuperlib(isbn);
         }
 
-        if( author && title ) {
-            moreversion(title, author);
+        if (localStorage.getItem(MoreVersion) == '1') {
+            if( author && title ) {
+                moreversion(title, author);
+            }
         }
 
         var abstract;
@@ -92,24 +145,20 @@ if (!/douban.com/.test(location.host)) {
                 break;
             }
         }
-        if (abstract.includes('教科书')) {
-            $('#mainpic').append('<div class="indent"><span class="tag">教科书</span></div>');
-        } else if (abstract.includes('教材')) {
-            $('#mainpic').append('<div class="indent"><span class="tag">教材</span></div>');
-        } else if (abstract.includes('课程')) {
-            $('#mainpic').append('<div class="indent"><span class="tag">课程</span></div>');
-        } else if (abstract.includes('课本')) {
-            $('#mainpic').append('<div class="indent"><span class="tag">课本</span></div>');
+
+        if (localStorage.getItem(IsCourse) == '1') {
+            if (abstract.includes('教科书')) {
+                $('#mainpic').append('<div class="indent"><span class="tag">教科书</span></div>');
+            } else if (abstract.includes('教材')) {
+                $('#mainpic').append('<div class="indent"><span class="tag">教材</span></div>');
+            } else if (abstract.includes('课程')) {
+                $('#mainpic').append('<div class="indent"><span class="tag">课程</span></div>');
+            } else if (abstract.includes('课本')) {
+                $('#mainpic').append('<div class="indent"><span class="tag">课本</span></div>');
+            }
         }
 
-        if (localStorage.getItem("IsticKeys") == '0') {
-            $('div.indent div.intro').eq(0).after('<p class="IsticKeys"><a class="ShowKeys" href="javascript:void();">(显示关键字)</a></p>');
-            $('div.indent span.all div.intro').eq(0).after('<p class="IsticKeys"><a class="ShowKeys" href="javascript:void();">(显示关键字)</a></p>');
-            $(".ShowKeys").click(function () {
-                localStorage.setItem("IsticKeys", '1');
-                location.reload();
-            });
-        } else {
+        if (localStorage.getItem(IsticKeys) == '1') {
             // 目录
             let id = getIDFromURL(location.href);
             let dir = $('#dir_' + id + '_full').text();
@@ -158,13 +207,8 @@ if (!/douban.com/.test(location.host)) {
                     if (keys.length >= 5) break;
                 }
 
-                $('div.indent div.intro').eq(0).after('<p class="IsticKeys">关键字: ' + keys.join('<span style="color:#989B9B"> | </span>') + ' <a class="hideKeys" href="javascript:void();">(隐藏)</a></p>');
-                $('div.indent span.all div.intro').eq(0).after('<p class="IsticKeys">关键字: ' + keys.join('<span style="color:#989B9B"> | </span>') + ' <a class="hideKeys" href="javascript:void();">(隐藏)</a></p>');
-                $(".hideKeys").click(function () {
-                    localStorage.setItem("IsticKeys", '0');
-                    $('.IsticKeys').hide();
-                    location.reload();
-                });
+                $('div.indent div.intro').eq(0).after('<p class="IsticKeys">关键字: ' + keys.join('<span style="color:#989B9B"> | </span>'));
+                $('div.indent span.all div.intro').eq(0).after('<p class="IsticKeys">关键字: ' + keys.join('<span style="color:#989B9B"> | </span>'));
             }
         }, function(err, meta) {
         });
@@ -355,7 +399,9 @@ if (!/douban.com/.test(location.host)) {
 
             retss.push(' <a target="_blank" href="http://xkfl.xhma.com/search?w=' + s + '">' + s + '</a>');
 
-            requestxhma(s);
+            if (localStorage.getItem(Subject) == '1') {
+                requestxhma(s);
+            }
         }
         return retss.join('、');
     }
